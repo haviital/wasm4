@@ -548,7 +548,8 @@ export class Netplay {
 				if(diff <= 5)  {
 					// Get the smallest stall counter.
 					if(this.stallAfterFramesCounter == -1 || diff<this.stallAfterFramesCounter)
-						this.stallAfterFramesCounter = -1; //!!!HV diff;
+						// this.stallAfterFramesCounter = -1; // disable feature
+						this.stallAfterFramesCounter = diff;  // enable feature
             		console.log("Set the stall counter : " + this.stallAfterFramesCounter);  //!!HV
 				}
 				else {		
