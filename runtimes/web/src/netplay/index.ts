@@ -155,6 +155,14 @@ class RemotePlayer {
     }
 
     sendTick (currentFrame: number) {
+		
+		// TICK message format:
+		// - currentFrame (Uint32, 4 bytes): 	The current frame of the sender.
+		// - requestedFrame (Int8, 1 byte): 	The frame which the sender client needs next from the receiver client (as a delta to the currentFrame).
+		// - inputFrame (Int8, 1 byte): 		The frame the sender last got from the receiver (as a delta to the currentFrame).
+		// - inputCount (Uint8, 1 byte): 		The button input count of the sender.
+		// - packed data (N bytes): 			The inputCount of button inputs of the sender(packed).		
+		
         const data = new DataView(SEND_BUFFER);
         data.setUint8(0, 1); // type = TICK
 
@@ -204,6 +212,8 @@ export class Netplay {
 
     private updateCount = 0;
 
+    private stallAfterFramesCounter = -1;
+	
     // Callbacks for showing UI notifications
     onstart?: (playerIdx: number) => void;
     onjoin?: (playerIdx: number) => void;
@@ -415,7 +425,15 @@ export class Netplay {
             const type = data.getUint8(0);
             switch (type) {
             case 1: { // TICK
-                // Ignore if we haven't started our local simulation, or we haven't yet received a
+
+				// TICK message format:
+				// - currentFrame (Uint32, 4 bytes): 	The current frame of the sender.
+				// - requestedFrame (Int8, 1 byte): 	The frame which the sender client needs next from the receiver client (as a delta to the currentFrame).
+				// - inputFrame (Int8, 1 byte): 		The frame the sender last got from the receiver (as a delta to the currentFrame).
+				// - inputCount (Uint8, 1 byte): 		The button input count of the sender.
+				// - packed data (inputCount of bytes): The button inputs of the sender(packed).		
+		
+				// Ignore if we haven't started our local simulation, or we haven't yet received a
                 // player index from this peer
                 if (this.rollbackMgr && remotePlayer.playerIdx >= 0) {
                     const frame = data.getUint32(1);
@@ -511,7 +529,8 @@ export class Netplay {
         // Add our input to the local simulation
         this.rollbackMgr.addInputs(this.localPlayerIdx, inputFrame, [ localInput ]);
 
-        let stall = false;
+        //let stall = false;
+		let stallReason = 0;  // default: no stall.
 
         for (const remotePlayer of this.remotePlayers.values()) {
             // Enqueue our input to send to the remote player
@@ -520,14 +539,31 @@ export class Netplay {
             remotePlayer.sendTick(currentFrame);
 
             // Stall if we're starved for input from this player, or the outbound buffer is full
-            if (remotePlayer.nextNeededFrame < currentFrame - HISTORY_LENGTH || remotePlayer.outboundInputs.length >= MAX_OUTBOUND_INPUTS) {
-                stall = true;
+            if (remotePlayer.nextNeededFrame < currentFrame - HISTORY_LENGTH ) {
+                stallReason = 1;
+            }
+            else if (remotePlayer.outboundInputs.length < MAX_OUTBOUND_INPUTS) {
+				// The outbound buffer size is not over the hard limit. Check if we should slowly decrease fps.
+				let diff = MAX_OUTBOUND_INPUTS - remotePlayer.outboundInputs.length;
+				if(diff <= 5)  {
+					// Get the smallest stall counter.
+					if(this.stallAfterFramesCounter == -1 || diff<this.stallAfterFramesCounter)
+						this.stallAfterFramesCounter = -1; //!!!HV diff;
+            		console.log("Set the stall counter : " + this.stallAfterFramesCounter);  //!!HV
+				}
+				else {		
+					this.stallAfterFramesCounter = -1;  // No need to stall yet.
+				}
+			}
+            else {
+				// The outbound buffer size is over the hard limit. Stall a frame.
+                stallReason = 2;
             }
 
             if (every32Ticks) {
                 remotePlayer.sendPingRequest();
             }
-        }
+        }  // end for
 
         if (every8Ticks) {
             // If we're more than one frame ahead of everybody else, stall this frame and eventually
@@ -537,14 +573,35 @@ export class Netplay {
                 maxDrift = Math.max(remotePlayer.drift.average, maxDrift);
             }
             if (maxDrift >= 1) {
-                stall = true;
+                stallReason = 3;
             }
         }
-
+		
+		// If we are stalling anyway, reset the stall counter.
+		let stall = false;
+		
+		// Stall if the counter is zero.
+		if(this.stallAfterFramesCounter == 0) 
+			stallReason = 4;
+		
+		//
+		if(stallReason>0) {
+			
+			// Stall!
+			stall = true;
+			
+			// Reset the counter on stall.
+		   	this.stallAfterFramesCounter = -1; 
+		}
+		
+		// Decrement the counter each frame.
+		if(this.stallAfterFramesCounter>0)
+			this.stallAfterFramesCounter--;
+		
         if (!stall) {
             this.rollbackMgr.update();
         } else {
-            // console.log("STALL");
+            console.log("*** STALL ***  stallReason="+ stallReason);  //!!HV
         }
 
         // // Temporary debug info to show in devtools live expressions
@@ -555,7 +612,7 @@ export class Netplay {
         // }
         // (window as any).NETPLAY_DEBUG = debug.join(" / ");
 
-        return !stall;
+        return (!stall);
     }
 
     /** Get a player summary for UI display. */

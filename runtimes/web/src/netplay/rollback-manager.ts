@@ -62,7 +62,7 @@ export class RollbackManager {
     addInputs (playerIdx: number, frame: number, inputs: InputData[]) {
         const player = this.players[playerIdx];
 
-        // console.log(`${playerIdx} frame ${frame} -> ${inputs.join(", ")}`);
+        // console.log(`${playerIdx} frame ${frame} -> ${inputs.join(", ")}`);  //!!HV
 
         // TODO(2022-04-09): Optimize
 
@@ -101,7 +101,7 @@ export class RollbackManager {
     update () {
         // Apply any rollbacks
         if (this.rollbackIdx < HISTORY_LENGTH) {
-            // console.log(`Rolling back ${HISTORY_LENGTH - this.rollbackIdx} frames`);
+            console.log(`Rolling back ${HISTORY_LENGTH - this.rollbackIdx} frames`); //!!HV
 
             // Update predicted inputs, propagating them forward
             for (let ii = this.rollbackIdx+1; ii < HISTORY_LENGTH; ++ii) {
